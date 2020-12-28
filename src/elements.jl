@@ -1,4 +1,4 @@
-# Copyright 2015, 2016, 2017, 2018, 2019 Martin Holters
+# Copyright 2015, 2016, 2017, 2018, 2019, 2020 Martin Holters
 # See accompanying license file.
 
 export resistor, potentiometer, capacitor, inductor, transformer,
@@ -214,7 +214,7 @@ at `+`
 """
 currentprobe(;rs=0) = Element(mv=1, mi=-rs, pi=1, ports=[:+ => :-])
 
-@doc doc"""
+@doc raw"""
     diode(;is=1e-12, η = 1)
 
 Creates a diode obeying Shockley's law
@@ -234,7 +234,7 @@ Pins: `+` (anode) and `-` (cathode)
         end
   )
 
-@doc doc"""
+@doc raw"""
     bjt(typ; is=1e-12, η=1, isc=is, ise=is, ηc=η, ηe=η, βf=1000, βr=10,
         ile=0, ilc=0, ηcl=ηc, ηel=ηe, vaf=Inf, var=Inf, ikf=Inf, ikr=Inf)
 
@@ -393,24 +393,32 @@ Pins: `base`, `emitter`, `collector`
                    ports = [:base => :emitter, :base => :collector])
 end
 
-@doc doc"""
-    mosfet(typ; vt=0.7, α=2e-5)
+@doc raw"""
+    mosfet(typ; vt=0.7, α=2e-5, λ=0)
 
 Creates a MOSFET transistor with the simple model
 
 $i_D=\begin{cases}
   0 & \text{if } v_{GS} \le v_T \\
   \alpha \cdot (v_{GS} - v_T - \tfrac{1}{2}v_{DS})\cdot v_{DS}
+  \cdot (1 + \lambda v_{DS})
   & \text{if } v_{DS} \le v_{GS} - v_T \cap v_{GS} > v_T \\
-  \frac{\alpha}{2} \cdot (v_{GS} - v_T)^2 & \text{otherwise.}
+  \frac{\alpha}{2} \cdot (v_{GS} - v_T)^2 \cdot (1 + \lambda v_{DS})
+  & \text{otherwise.}
 \end{cases}$
 
 The `typ` parameter chooses between NMOS (`:n`) and PMOS (`:p`). The threshold
-voltage `vt` is given in Volt, `α` (in A/V²) in a constant depending on the
-physics and dimensions of the device.
+voltage `vt` is given in Volt, `α` (in A/V²) is a constant depending on the
+physics and dimensions of the device, and `λ` (in V⁻¹) controls the channel
+length modulation.
+
+Optionally, it is possible to specify tuples of coefficients for `vt` and `α`.
+These will be used as polynomials in $v_{GS}$ to determine $v_T$ and $\alpha$,
+respectively. E.g. with `vt=(0.7, 0.1, 0.02)`, the $v_{GS}$-dpendent threshold
+voltage $v_T = 0.7 + 0.1\cdot v_{GS} + 0.02\cdot v_{GS}^2$ will be used.
 
 Pins: `gate`, `source`, `drain`
-""" function mosfet(typ; vt=0.7, α=2e-5)
+""" function mosfet(typ; vt=0.7, α=2e-5, λ=0)
     if typ == :n
         polarity = 1
     elseif typ == :p
@@ -418,28 +426,46 @@ Pins: `gate`, `source`, `drain`
     else
         throw(ArgumentError("Unknown mosfet type $(typ), must be :n or :p"))
     end
-    return Element(mv=[-1 0; 0 -1; 0 0; 0 0],
-        mi=[0 0; 0 0; 0 -1; 1 0],
-        mq=polarity*[1 0 0; 0 1 0; 0 0 1; 0 0 0],
-        u0=polarity*[-vt; 0; 0; 0],
-        ports=[:gate => :source, :drain => :source],
-        nonlinear_eq = @inline function (q)
-            vg, vds, id=q # vg = vgs-vt
-            if vg <= 0
-                res = @SVector [-id]
-                J = @SMatrix [0.0 0.0 -1.0]
-            elseif vds <= vg
-                res = @SVector [α * (vg-0.5*vds)*vds - id]
-                J = @SMatrix [α*vds α*(vg-vds) -1.0]
-            else # 0 < vg < vds
-                res = @SVector [(α/2) * vg^2 - id]
-                J = @SMatrix [α*vg 0.0 -1.0]
-            end
-            return (res, J)
-        end)
+    vt = (vt...,)
+    α = (α...,)
+    dvt = vt[2:end] .* (1:length(vt)-1...,)
+    dα = α[2:end] .* (1:length(α)-1...,)
+    let polarity = polarity, α = α, vt = vt
+        return Element(mv=[-1 0; 0 -1; 0 0; 0 0],
+            mi=[0 0; 0 0; 0 -1; 1 0],
+            mq=polarity*[1 0 0; 0 1 0; 0 0 1; 0 0 0],
+            ports=[:gate => :source, :drain => :source],
+            nonlinear_eq = @inline function (q)
+                vgs, vds, id = q
+                α´ = evalpoly(polarity*vgs, α)
+                if !isempty(dα)
+                    dα´_dvgs = evalpoly(polarity*vgs, dα)
+                else
+                    dα´_dvgs = 0
+                end
+                vt´ = evalpoly(polarity*vgs, vt)
+                if !isempty(dvt)
+                    dvt´_dvgs = evalpoly(polarity*vgs, dvt)
+                else
+                    dvt´_dvgs = 0
+                end
+                λ´ = vds ≥ 0 ? λ : zero(λ)
+                if vgs <= vt´
+                    res = @SVector [-id]
+                    J = @SMatrix [0.0 0.0 -1.0]
+                elseif vds <= vgs - vt´ # && vgs > vt´
+                    res = @SVector [α´ * (vgs-vt´-0.5*vds)*vds*(1+λ´*vds) - id]
+                    J = @SMatrix [α´*(1-dvt´_dvgs)*vds*(1+λ´*vds) + dα´_dvgs * (vgs-vt´-0.5*vds)*vds*(1+λ´*vds)  α´*(vgs-vt´+vds*(2*λ´*(vgs-vt´-0.75*vds)-1))  -1.0]
+                else # 0 < vgs - vt´ < vds
+                    res = @SVector [(α´/2) * (vgs-vt´)^2*(1+λ´*vds) - id]
+                    J = @SMatrix [α´*(vgs-vt´)*(1-dvt´_dvgs)*(1+λ´*vds) + dα´_dvgs/2 * (vgs-vt´)^2*(1+λ´*vds) λ´*α´/2*(vgs-vt´)^2 -1.0]
+                end
+                return (res, J)
+            end)
+    end
 end
 
-@doc doc"""
+@doc raw"""
     opamp(;maxgain=Inf, gain_bw_prod=Inf)
 
 Creates a linear operational amplifier as a voltage-controlled voltage source.
@@ -475,7 +501,7 @@ Pins: `in+` and `in-` for input, `out+` and `out-` for output
     end
 end
 
-@doc doc"""
+@doc raw"""
     opamp(Val{:macak}, gain, vomin, vomax)
 
 Creates a clipping operational amplifier where input and output voltage are
@@ -501,6 +527,7 @@ Pins: `in+` and `in-` for input, `out+` and `out-` for output
             vi_scaled = vi * (gain/scale)
             res = @SVector [tanh(vi_scaled) * scale - vo]
             J = @SMatrix [gain / cosh(vi_scaled)^2 -1.0]
+            return (res, J)
         end
     return Element(mv=[0 0; 1 0; 0 1], mi=[1 0; 0 0; 0 0], mq=[0 0; -1 0; 0 -1],
                    u0=[0; 0; offset],

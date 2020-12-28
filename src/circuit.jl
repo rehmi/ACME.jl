@@ -1,4 +1,4 @@
-# Copyright 2015, 2016, 2017, 2018, 2019 Martin Holters
+# Copyright 2015, 2016, 2017, 2018, 2019, 2020 Martin Holters
 # See accompanying license file.
 
 export Circuit, add!, connect!, disconnect!, @circuit, composite_element
@@ -69,7 +69,6 @@ function incidence(c::Circuit)
 end
 
 function nonlinear_eq_func(c::Circuit, elem_idxs=1:length(elements(c)))
-    row_offset = 0
     col_offset = 0
     funcs = Function[]
     for elem in collect(elements(c))[elem_idxs]
@@ -84,7 +83,6 @@ function nonlinear_eq_func(c::Circuit, elem_idxs=1:length(elements(c)))
                 end
             end)
 
-        row_offset += nn(elem)
         col_offset += nq(elem)
     end
     return CircuitNLFunc((funcs...,))
@@ -259,7 +257,7 @@ end
 topomat(incidence::SparseMatrixCSC{<:Integer}) = topomat!(copy(incidence))
 topomat(c::Circuit) = topomat!(incidence(c))
 
-@doc doc"""
+@doc raw"""
     @circuit begin #= ... =# end
 
 Provides a simple domain-specific language to decribe circuits. The
@@ -320,8 +318,9 @@ If a net or pin specification is not just a single symbol or number, and has to
 be put in quotes (e.g. `"in+"`, `"9V"`)
 
 !!! note
-    Instead of `⟷` (`\\longleftrightarrow`), one can also use `==`.
-""" macro circuit(cdef)
+    Instead of `⟷` (`\longleftrightarrow`), one can also use `==`.
+"""
+macro circuit(cdef)
     is_conn_spec(expr::Expr) =
         (expr.head === :call && (expr.args[1] === :(⟷) || expr.args[1] === :(↔) || expr.args[1] === :(==))) ||
         (expr.head === :comparison && all(c -> c === :(==), expr.args[2:2:end]))
@@ -406,7 +405,7 @@ be put in quotes (e.g. `"in+"`, `"9V"`)
     return ccode
 end
 
-@doc doc"""
+@doc raw"""
     composite_element(circ; pinmap=Dict(), ports)
 
 Create a circuit element from the (sub-)circuit `circ`. The `pinmap` defines

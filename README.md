@@ -5,9 +5,9 @@
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://hsu-ant.github.io/ACME.jl/dev/)
 [![DOI](https://zenodo.org/badge/48224425.svg)](https://zenodo.org/badge/latestdoi/48224425)
 
-[![Build Status](https://travis-ci.org/HSU-ANT/ACME.jl.svg?branch=develop)](https://travis-ci.org/HSU-ANT/ACME.jl)
-[![codecov](https://codecov.io/gh/HSU-ANT/ACME.jl/branch/develop/graph/badge.svg)](https://codecov.io/gh/HSU-ANT/ACME.jl)
-[![Coverage Status](https://coveralls.io/repos/github/HSU-ANT/ACME.jl/badge.svg?branch=develop)](https://coveralls.io/github/HSU-ANT/ACME.jl)
+[![CI](https://github.com/HSU-ANT/ACME.jl/workflows/CI/badge.svg)](https://github.com/HSU-ANT/ACME.jl/actions?query=workflow%3ACI+branch%3Amain)
+[![codecov](https://codecov.io/gh/HSU-ANT/ACME.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/HSU-ANT/ACME.jl)
+[![Coverage Status](https://coveralls.io/repos/github/HSU-ANT/ACME.jl/badge.svg?branch=main)](https://coveralls.io/github/HSU-ANT/ACME.jl)
 
 ACME is a [Julia](http://julialang.org/) package for the simulation of
 electrical circuits, focusing on audio effect circuits. It allows to
@@ -109,7 +109,7 @@ row per input (just one in the example) and one column per sample. So for a
 sinusoid at 1 kHz lasting one second, we do
 
 ```Julia
-y = run!(model, sin(2π*1000/44100*(0:44099).'))
+y = run!(model, [sin(2π*1000/44100*n) for c in 1:1, n in 0:44099])
 ```
 
 The output `y` now likewise is a matrix with one row for the one probe we have
