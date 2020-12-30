@@ -305,7 +305,56 @@ function model_matrices(circ::Circuit, t::Rational{BigInt})
     return res
 end
 
-model_matrices(circ::Circuit, t) = model_matrices(circ, Rational{BigInt}(t))
+function model_matrices(circ::Circuit, t::Union{Int,AbstractFloat})
+    T = Float64
+    lhs = convert(SparseMatrixCSC{T,Int},
+                  [mv(circ) mi(circ) mxd(circ)/t+mx(circ)/2 mq(circ);
+                   blockdiag(topomat(circ)...) spzeros(nb(circ), nx(circ) + nq(circ))])
+    rhs = convert(SparseMatrixCSC{T,Int},
+                  [u0(circ) mu(circ) mxd(circ)/t-mx(circ)/2;
+                          spzeros(nb(circ), 1+nu(circ)+nx(circ))])
+    x, f = Matrix.(gensolve(lhs, rhs))
+
+    rowsizes = [nb(circ); nb(circ); nx(circ); nq(circ)]
+    res = Dict{Symbol,Array}(zip([:fv; :fi; :c; :fq], matsplit(f, rowsizes)))
+
+    nullspace = gensolve(sparse(res[:fq]::Matrix{T}),
+                         spzeros(T, size(res[:fq],1), 0))[2]
+    indeterminates = f * nullspace
+
+    if sum(abs2, res[:c] * nullspace) > 1e-20
+        @warn "State update depends on indeterminate quantity"
+    end
+    while size(nullspace, 2) > 0
+        i, j = argmax(abs.(nullspace)).I
+        nullspace = nullspace[[1:i-1; i+1:end], [1:j-1; j+1:end]]
+        f = f[:, [1:i-1; i+1:end]]
+        for k in [:fv; :fi; :c; :fq]
+            res[k] = res[k][:, [1:i-1; i+1:end]]
+        end
+    end
+
+    merge!(res, Dict(zip([:v0 :ev :dv; :i0 :ei :di; :x0 :b :a; :q0 :eq_full :dq_full],
+    matsplit(x, rowsizes, [1; nu(circ); nx(circ)]))))
+    for v in (:v0, :i0, :x0, :q0)
+        res[v] = dropdims(res[v], dims=2)
+    end
+
+    p = [pv(circ) pi(circ) px(circ)/2+pxd(circ)/t pq(circ)]
+    if sum(abs2, p * indeterminates) > 1e-20
+        @warn "Model output depends on indeterminate quantity"
+    end
+    res[:dy] = p * x[:,2+nu(circ):end] + px(circ)/2-pxd(circ)/t
+    #          p * [dv; di; a;  dq_full] + px(circ)/2-pxd(circ)/t
+    res[:ey] = p * x[:,2:1+nu(circ)] # p * [ev; ei; b;  eq_full]
+    res[:fy] = p * f                 # p * [fv; fi; c;  fq]
+    res[:y0] = p * vec(x[:,1])       # p * [v0; i0; x0; q0]
+
+    return res
+end
+
+
+model_matrices(circ::Circuit, t::Rational) = model_matrices(circ, Rational{BigInt}(t))
 
 function tryextract(fq, numcols)
     a = Matrix{eltype(fq)}(I, size(fq, 2), size(fq, 2))

@@ -71,7 +71,7 @@ end
             vprobe = voltageprobe(), [-] ⟷ gnd, [+] ⟷ r1[2]
             r1[1] ⟷ "supply voltage"
         end
-        model = DiscreteModel(circ, 1)
+        model = DiscreteModel(circ, 1.0)
         y = run!(model, zeros(0, 1))
         @test y[1] ≈ v_d
     end
@@ -673,7 +673,7 @@ end
         add!(circ, :vbsrc, voltagesource(4.5))
         connect!(circ, (:vbsrc, :+), :vb)
         connect!(circ, (:vbsrc, :-), :gnd)
-        model = DiscreteModel(circ, 1/44100)
+        model = DiscreteModel(circ, 1//44100)
         @test ACME.np(model, 1) == 2
         @test ACME.np(model, 2) == 1
         @test ACME.np(model, 3) == 2
@@ -704,7 +704,7 @@ end
         add!(circ, :vbsrc, voltagesource(4.5))
         connect!(circ, (:vbsrc, :+), :vb)
         connect!(circ, (:vbsrc, :-), :gnd)
-        model = DiscreteModel(circ, 1/44100)
+        model = DiscreteModel(circ, 1//44100)
         @test ACME.np(model, 1) == 2
         @test ACME.np(model, 2) == 2
         @test ACME.np(model, 3) == 2
